@@ -1,0 +1,144 @@
+#include <WiFi.h>
+#include <WebServer.h>
+
+// ================= WIFI =================
+const char* ssid = "YOUR_WIFI_NAME";
+const char* password = "YOUR_WIFI_PASSWORD";
+
+// ================= WEB SERVER =================
+WebServer server(80);
+
+// ================= BRANCH DATA =================
+struct BranchData {
+  int moisture = 0;
+  int adc = 0;
+  bool valve = false;
+  unsigned long lastUpdate = 0;
+};
+
+BranchData branch1;
+
+// ================= RECEIVE DATA FROM BRANCH =================
+// Example:
+// http://BRAIN_IP/update?moisture=45&adc=2200&valve=1
+void handleUpdate() {
+  if (server.hasArg("moisture")) {
+    branch1.moisture = server.arg("moisture").toInt();
+  }
+
+  if (server.hasArg("adc")) {
+    branch1.adc = server.arg("adc").toInt();
+  }
+
+  if (server.hasArg("valve")) {
+    branch1.valve = server.arg("valve").toInt() == 1;
+  }
+
+  branch1.lastUpdate = millis();
+
+  server.send(200, "text/plain", "OK");
+}
+
+// ================= WEB DASHBOARD =================
+void handleRoot() {
+  String valveStatus = branch1.valve ? "OPEN" : "CLOSED";
+  String valveColor  = branch1.valve ? "#22c55e" : "#ef4444";
+
+  float secondsAgo = branch1.lastUpdate == 0 ? -1 : (millis() - branch1.lastUpdate) / 1000.0;
+
+  String html = "<!DOCTYPE html><html><head>";
+  html += "<meta charset='utf-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<meta http-equiv='refresh' content='2'>";
+  html += "<title>FloraX Brain</title>";
+  html += "<style>";
+  html += "body{margin:0;font-family:Arial,sans-serif;background:linear-gradient(135deg,#e8f5e9,#f8fff8);color:#1f2937;text-align:center;}";
+  html += ".header{background:#16a34a;color:white;padding:24px 16px;box-shadow:0 2px 10px rgba(0,0,0,0.15);}";
+  html += ".header h1{margin:0;font-size:42px;letter-spacing:1px;}";
+  html += ".header p{margin:8px 0 0 0;font-size:15px;opacity:0.95;}";
+  html += ".container{max-width:900px;margin:24px auto;padding:0 16px;}";
+  html += ".card{background:white;border-radius:18px;padding:24px;margin:18px auto;box-shadow:0 6px 20px rgba(0,0,0,0.10);}";
+  html += ".label{font-size:20px;color:#4b5563;margin-bottom:10px;}";
+  html += ".value{font-size:52px;font-weight:bold;color:#16a34a;}";
+  html += ".status{display:inline-block;padding:12px 22px;border-radius:999px;color:white;font-size:22px;font-weight:bold;background:";
+  html += valveColor;
+  html += ";}";
+  html += ".small{font-size:16px;color:#6b7280;}";
+  html += "</style></head><body>";
+
+  html += "<div class='header'>";
+  html += "<h1>FloraX Brain</h1>";
+  html += "<p>ESP32-WROOM Dashboard</p>";
+  html += "</div>";
+
+  html += "<div class='container'>";
+
+  html += "<div class='card'>";
+  html += "<div class='label'>Branch Moisture</div>";
+  html += "<div class='value'>" + String(branch1.moisture) + "%</div>";
+  html += "</div>";
+
+  html += "<div class='card'>";
+  html += "<div class='label'>Valve Status</div>";
+  html += "<div class='status'>" + valveStatus + "</div>";
+  html += "</div>";
+
+  html += "<div class='card'>";
+  html += "<div class='label'>ADC Value</div>";
+  html += "<div class='value'>" + String(branch1.adc) + "</div>";
+  html += "</div>";
+
+  html += "<div class='card'>";
+  html += "<div class='label'>Last Update</div>";
+  if (secondsAgo < 0) {
+    html += "<div class='small'>No data received yet</div>";
+  } else {
+    html += "<div class='small'>" + String(secondsAgo, 1) + " seconds ago</div>";
+  }
+  html += "</div>";
+
+  html += "</div></body></html>";
+
+  server.send(200, "text/html", html);
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println();
+  Serial.println("Connected!");
+  Serial.print("Brain IP Address: http://");
+  Serial.println(WiFi.localIP());
+
+  server.on("/", handleRoot);
+  server.on("/update", handleUpdate);
+  server.begin();
+
+  Serial.println("Web server started");
+}
+
+void loop() {
+  server.handleClient();
+
+  static unsigned long lastPrint = 0;
+  if (millis() - lastPrint > 2000) {
+    lastPrint = millis();
+
+    Serial.print("Moisture: ");
+    Serial.print(branch1.moisture);
+    Serial.print("% | ADC: ");
+    Serial.print(branch1.adc);
+    Serial.print(" | Valve: ");
+    Serial.println(branch1.valve ? "OPEN" : "CLOSED");
+  }
+}
