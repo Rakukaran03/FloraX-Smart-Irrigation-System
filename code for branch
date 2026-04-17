@@ -1,0 +1,90 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ESP32Servo.h>
+
+// ===== WIFI =====
+const char* ssid = "YOUR_WIFI_NAME";
+const char* password = "YOUR_WIFI_PASSWORD";
+
+// ===== Brain IP =====
+String brainIP = "http://192.168.1.50/update";  // CHANGE TO YOUR BRAIN IP
+
+// ===== Pins =====
+int soilPin = 2;
+int servoPin = 3;
+
+Servo valveServo;
+
+int dryValue = 3500;
+int wetValue = 1500;
+
+int moisture;
+int soilADC;
+bool valveOpen = false;
+
+int openAngle = 90;
+int closeAngle = 0;
+
+int getMoisture(int adc) {
+  return constrain(map(adc, dryValue, wetValue, 0, 100), 0, 100);
+}
+
+void openValve() {
+  valveServo.write(openAngle);
+  valveOpen = true;
+}
+
+void closeValve() {
+  valveServo.write(closeAngle);
+  valveOpen = false;
+}
+
+void setup() {
+
+  Serial.begin(115200);
+
+  analogReadResolution(12);
+  analogSetPinAttenuation(soilPin, ADC_11db);
+
+  valveServo.setPeriodHertz(50);
+  valveServo.attach(servoPin, 500, 2400);
+  closeValve();
+
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+  }
+
+  Serial.println("Branch Connected");
+}
+
+void loop() {
+
+  soilADC = analogRead(soilPin);
+  moisture = getMoisture(soilADC);
+
+  if (moisture < 20 && !valveOpen) openValve();
+  if (moisture >= 100 && valveOpen) closeValve();
+
+  if (WiFi.status() == WL_CONNECTED) {
+
+    HTTPClient http;
+
+    String url = brainIP +
+                 "?moisture=" + String(moisture) +
+                 "&adc=" + String(soilADC) +
+                 "&valve=" + String(valveOpen);
+
+    http.begin(url);
+    http.GET();
+    http.end();
+  }
+
+  Serial.print("Moisture: ");
+  Serial.print(moisture);
+  Serial.print("% | Valve: ");
+  Serial.println(valveOpen ? "OPEN" : "CLOSED");
+
+  delay(2000);
+}
